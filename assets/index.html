@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fsearch - Fast Windows Search</title>
+    <style>
+        /* CSS resets and variables */
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #252526;
+            --text-color: #cccccc;
+            --accent-color: #007acc;
+            --border-color: #3e3e42;
+            --hover-color: #2a2d2e;
+            --match-bg: rgba(255, 255, 0, 0.2);
+            --match-color: #d7ba7d;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header / Search Bar */
+        header {
+            padding: 15px;
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .search-input-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            background-color: #3c3c3c;
+            border: 1px solid var(--border-color);
+            color: white;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .options {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }
+        
+        .options label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
+        /* Main Split View */
+        main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Results List */
+        .results-pane {
+            width: 40%;
+            min-width: 250px;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .file-result {
+            padding: 8px 15px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+
+        .file-result:hover, .file-result.selected {
+            background-color: var(--hover-color);
+        }
+
+        .file-path {
+            font-weight: bold;
+            font-size: 13px;
+            word-break: break-all;
+            margin-bottom: 4px;
+            color: #d4d4d4;
+        }
+
+        .match-preview {
+            font-size: 12px;
+            color: #858585;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .match-highlight {
+            color: var(--match-color);
+            background-color: var(--match-bg);
+            border-radius: 2px;
+        }
+
+        /* File Preview Pane */
+        .preview-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-color);
+        }
+
+        .preview-header {
+            padding: 10px 15px;
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .action-btns button {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 5px;
+            font-size: 12px;
+        }
+
+        .action-btns button:hover {
+            background-color: var(--hover-color);
+            border-color: #858585;
+        }
+
+        .preview-content {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+
+        /* Status Bar */
+        footer {
+            padding: 5px 15px;
+            background-color: var(--accent-color);
+            color: white;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="search-input-group">
+            <input type="text" id="searchInput" placeholder="Search files and content..." autofocus>
+            <div class="options">
+                <input type="text" id="pathInput" value="." title="Root Path" style="width: 150px; padding: 4px; font-size: 12px;">
+                <label><input type="radio" name="mode" value="both" checked> Both</label>
+                <label><input type="radio" name="mode" value="name"> File Name</label>
+                <label><input type="radio" name="mode" value="content"> Content</label>
+                <label><input type="checkbox" id="regexCheck"> Regex</label>
+                <label><input type="checkbox" id="caseCheck"> Match Case</label>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="results-pane" id="resultsList">
+            <!-- Results populated here -->
+        </div>
+        <div class="preview-pane">
+            <div class="preview-header">
+                <span id="previewTitle">No file selected</span>
+                <div class="action-btns" id="actionBtns" style="display: none;">
+                    <button onclick="openFile()">Open File</button>
+                    <button onclick="openFolder()">Open Folder</button>
+                </div>
+            </div>
+            <div class="preview-content" id="previewContent">
+                Select a file to preview its matches.
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <span id="statusText">Ready</span>
+        <span id="statsText"></span>
+    </footer>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const pathInput = document.getElementById('pathInput');
+        const modeInputs = document.querySelectorAll('input[name="mode"]');
+        const regexCheck = document.getElementById('regexCheck');
+        const caseCheck = document.getElementById('caseCheck');
+        
+        const resultsList = document.getElementById('resultsList');
+        const previewTitle = document.getElementById('previewTitle');
+        const previewContent = document.getElementById('previewContent');
+        const actionBtns = document.getElementById('actionBtns');
+        const statusText = document.getElementById('statusText');
+        const statsText = document.getElementById('statsText');
+
+        let debounceTimer;
+        let activeResults = [];
+        let selectedResult = null;
+
+        function triggerSearch() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                const query = searchInput.value;
+                if (!query) {
+                    clearResults();
+                    return;
+                }
+
+                const path = pathInput.value || '.';
+                const mode = document.querySelector('input[name="mode"]:checked').value;
+                const regex = regexCheck.checked;
+                const matchCase = caseCheck.checked;
+
+                statusText.textContent = 'Searching...';
+                statsText.textContent = '';
+                clearResults();
+
+                const req = {
+                    query, path, mode, regex, ignore_case: !matchCase
+                };
+                
+                window.ipc.postMessage(JSON.stringify({ type: 'search', payload: req }));
+            }, 300);
+        }
+
+        function clearResults() {
+            resultsList.innerHTML = '';
+            activeResults = [];
+            selectedResult = null;
+            previewTitle.textContent = 'No file selected';
+            previewContent.innerHTML = 'Select a file to preview its matches.';
+            actionBtns.style.display = 'none';
+        }
+
+        searchInput.addEventListener('input', triggerSearch);
+        pathInput.addEventListener('change', triggerSearch);
+        modeInputs.forEach(i => i.addEventListener('change', triggerSearch));
+        regexCheck.addEventListener('change', triggerSearch);
+        caseCheck.addEventListener('change', triggerSearch);
+
+        window.ipc = window.ipc || {
+            postMessage: (msg) => console.log('Mock IPC:', msg)
+        };
+
+        // Handle messages from Rust
+        window.addEventListener('message', (event) => {
+            if (typeof event.data !== 'string') return;
+            const msg = JSON.parse(event.data);
+            
+            if (msg.type === 'result') {
+                addResult(msg.payload);
+            } else if (msg.type === 'summary') {
+                statusText.textContent = 'Done';
+                statsText.textContent = `${msg.payload.total_matches} matches in ${msg.payload.files_with_matches} files (${msg.payload.duration_ms}ms)`;
+            } else if (msg.type === 'error') {
+                statusText.textContent = `Error: ${msg.payload}`;
+            }
+        });
+
+        function addResult(result) {
+            activeResults.push(result);
+            
+            const div = document.createElement('div');
+            div.className = 'file-result';
+            
+            const pathDiv = document.createElement('div');
+            pathDiv.className = 'file-path';
+            pathDiv.textContent = result.file_path;
+            div.appendChild(pathDiv);
+
+            if (result.matches && result.matches.length > 0) {
+                const firstMatch = result.matches[0];
+                const previewDiv = document.createElement('div');
+                previewDiv.className = 'match-preview';
+                previewDiv.textContent = `Line ${firstMatch.line_number}: ${firstMatch.line_content.trim()}`;
+                div.appendChild(previewDiv);
+            } else if (result.is_file_name_match) {
+                const previewDiv = document.createElement('div');
+                previewDiv.className = 'match-preview';
+                previewDiv.textContent = '[File Name Match]';
+                div.appendChild(previewDiv);
+            }
+
+            div.onclick = () => selectResult(div, result);
+            resultsList.appendChild(div);
+        }
+
+        function selectResult(element, result) {
+            document.querySelectorAll('.file-result').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedResult = result;
+            
+            previewTitle.textContent = result.file_path;
+            actionBtns.style.display = 'block';
+
+            if (result.matches && result.matches.length > 0) {
+                let html = '';
+                result.matches.forEach(m => {
+                    const before = m.line_content.substring(0, m.match_start);
+                    const matched = m.line_content.substring(m.match_start, m.match_end);
+                    const after = m.line_content.substring(m.match_end);
+                    
+                    const safeBefore = escapeHtml(before);
+                    const safeMatched = escapeHtml(matched);
+                    const safeAfter = escapeHtml(after);
+
+                    html += `<div style="margin-bottom: 10px;">
+                        <span style="color: #858585; user-select: none;">${m.line_number} | </span>
+                        ${safeBefore}<span class="match-highlight">${safeMatched}</span>${safeAfter}
+                    </div>`;
+                });
+                previewContent.innerHTML = html;
+            } else {
+                previewContent.innerHTML = '<div style="color: #858585; text-align: center; margin-top: 50px;">File name matches query.</div>';
+            }
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function openFile() {
+            if (selectedResult) {
+                window.ipc.postMessage(JSON.stringify({ type: 'open_file', payload: selectedResult.file_path }));
+            }
+        }
+
+        function openFolder() {
+            if (selectedResult) {
+                window.ipc.postMessage(JSON.stringify({ type: 'open_folder', payload: selectedResult.file_path }));
+            }
+        }
+    </script>
+</body>
+</html>

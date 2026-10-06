@@ -39,7 +39,7 @@ pub struct SearchResult {
 }
 
 /// Summary statistics returned after a search completes.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchSummary {
     pub total_matches: usize,
     pub files_with_matches: usize,
